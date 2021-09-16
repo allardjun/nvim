@@ -1,0 +1,6 @@
+vimp.nmap(';ff', ':Files<CR>')
+vimp.nmap(';fg', ':GitFiles<CR>')
+vimp.nmap(';fb', ':Buffers<CR>')
+vimp.nmap(';fr', ':Rg<CR>')
+vimp.nmap(';fh', ':History<CR>')
+vimp.nmap(';fc', ':History:<CR>')
