@@ -8,7 +8,7 @@ vim.o.termguicolors = true
 vim.o.shiftround = true
 vim.o.inccommand = 'nosplit'
 vim.bo.undofile = true
-vim.bo.textwidth = 120
+--vim.bo.textwidth = 120
 
 vim.cmd [[
 set expandtab
