@@ -10,6 +10,8 @@ vim.o.inccommand = 'nosplit'
 vim.bo.undofile = true
 --vim.bo.textwidth = 120
 
+vim.o.conceallevel = 0
+
 vim.cmd [[
 set expandtab
 set shiftwidth=2
