@@ -27,3 +27,7 @@ vim.g.mapleader = ','
 
 -- mouse for resizing panes is just too tempting
 vim.o.mouse = 'a'
+
+-- Try to use system clipboard
+vim.opt.clipboard = 'unnamedplus'
+
