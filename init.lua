@@ -283,6 +283,7 @@ vim.o.termguicolors = true
 vim.o.foldmethod = "indent"
 vim.o.foldlevel = 99
 
+vim.opt.foldmethod = "indent"
 
 -- [[ Basic Keymaps ]]
 
