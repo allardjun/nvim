@@ -81,6 +81,9 @@ require('lazy').setup({
     },
   },
 
+  -- Added by Jun
+  'tpope/vim-surround',
+
   -- {
   --   -- Autocompletion
   --   'hrsh7th/nvim-cmp',
