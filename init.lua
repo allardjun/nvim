@@ -233,7 +233,12 @@ require('lazy').setup({
     cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
     ft = { "markdown" },
     build = function() vim.fn["mkdp#util#install"]() end,
- }
+ },
+
+ {
+  "folke/zen-mode.nvim",
+    opts = {},
+  }
 
 
 }, {}) -- done lazy setup call
@@ -284,6 +289,8 @@ vim.o.foldmethod = "indent"
 vim.o.foldlevel = 99
 
 vim.opt.foldmethod = "indent"
+vim.opt.shiftwidth = 1
+vim.o.shiftwidth = 1
 
 -- [[ Basic Keymaps ]]
 
@@ -313,6 +320,11 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   group = highlight_group,
   pattern = '*',
 })
+
+
+-- Maps Alt-b in normal and visual mode to add bullets to lines
+vim.keymap.set('n', '<A-b>', ':s/^\\(\\s*\\)\\zs/\\* /<CR>:noh<CR>', { silent = true })
+vim.keymap.set('v', '<A-b>', ':s/^\\(\\s*\\)\\zs/\\* /<CR>:noh<CR>', { silent = true })
 
 -- [[ Configure Telescope ]]
 -- See `:help telescope` and `:help telescope.setup()`
