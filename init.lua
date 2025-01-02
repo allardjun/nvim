@@ -644,3 +644,16 @@ vim.keymap.set(
   {noremap = true}   -- Options: no remap
 )
 
+-- Increase scale
+vim.keymap.set("n", "<leader>=", function()
+  vim.g.neovide_scale_factor = vim.g.neovide_scale_factor + 0.1
+  print("Scale factor: " .. vim.g.neovide_scale_factor)
+end)
+
+-- Decrease scale
+vim.keymap.set("n", "<leader>-", function()
+  vim.g.neovide_scale_factor = math.max(0.1, vim.g.neovide_scale_factor - 0.1)
+  print("Scale factor: " .. vim.g.neovide_scale_factor)
+end)
+
+
