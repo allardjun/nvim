@@ -645,15 +645,26 @@ vim.keymap.set(
 )
 
 -- Increase scale
-vim.keymap.set("n", "<leader>=", function()
+vim.keymap.set("n", "<D-=>", function()
   vim.g.neovide_scale_factor = vim.g.neovide_scale_factor + 0.1
   print("Scale factor: " .. vim.g.neovide_scale_factor)
 end)
 
 -- Decrease scale
-vim.keymap.set("n", "<leader>-", function()
+vim.keymap.set("n", "<D-->", function()
   vim.g.neovide_scale_factor = math.max(0.1, vim.g.neovide_scale_factor - 0.1)
   print("Scale factor: " .. vim.g.neovide_scale_factor)
 end)
 
+-- Using vim.keymap.set (Neovim 0.7+)
+vim.keymap.set("v", "<leader>-", function()
+  -- This command prepends " - " to every selected line
+  vim.cmd(":'<,'>normal! I - ")
+end, { desc = "Insert ' - ' at start of each selected line" })
+
+-- Using vim.keymap.set (Neovim 0.7+)
+vim.keymap.set("v", "<leader>*", function()
+  -- This command prepends " - " to every selected line
+  vim.cmd(":'<,'>normal! I * ")
+end, { desc = "Insert ' * ' at start of each selected line" })
 
