@@ -656,15 +656,14 @@ vim.keymap.set("n", "<D-->", function()
   print("Scale factor: " .. vim.g.neovide_scale_factor)
 end)
 
--- Using vim.keymap.set (Neovim 0.7+)
-vim.keymap.set("v", "<leader>-", function()
-  -- This command prepends " - " to every selected line
-  vim.cmd(":'<,'>normal! I - ")
-end, { desc = "Insert ' - ' at start of each selected line" })
 
--- Using vim.keymap.set (Neovim 0.7+)
-vim.keymap.set("v", "<leader>*", function()
-  -- This command prepends " - " to every selected line
-  vim.cmd(":'<,'>normal! I * ")
-end, { desc = "Insert ' * ' at start of each selected line" })
+vim.keymap.set("x", "<leader>-", [[:<C-u>'<,'>normal! I - <CR>]], {
+  desc = "Prefix selected lines with ' - '"
+})
 
+vim.keymap.set("x", "<leader>*", [[:<C-u>'<,'>normal! I * <CR>]], {
+  desc = "Prefix selected lines with ' * '"
+})
+-- add italic and bold support for Neovide (doesn't matter for iTerm)
+-- vim.opt.guifont = { "FiraCode Nerd Font Mono", "h14" }
+vim.opt.guifont = "JetBrains Mono:Fira Code:h14"
