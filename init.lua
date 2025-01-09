@@ -295,6 +295,14 @@ vim.opt.foldmethod = "indent"
 vim.opt.shiftwidth = 1
 vim.o.shiftwidth = 1
 
+-- Enable syntax-based folding for Markdown
+vim.g.markdown_folding = 1
+vim.opt.foldmethod = 'expr'
+vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
+
+
+
+
 -- [[ Basic Keymaps ]]
 
 
