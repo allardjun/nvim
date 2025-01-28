@@ -288,12 +288,23 @@ vim.o.completeopt = 'menuone,noselect'
 vim.o.termguicolors = true
 
 -- Added by Jun for code folding
-vim.o.foldmethod = "indent"
-vim.o.foldlevel = 99
+-- vim.o.foldmethod = "indent"
+-- vim.o.foldlevel = 99
+--
+-- vim.opt.foldmethod = "indent"
+-- vim.opt.shiftwidth = 1
+-- vim.o.shiftwidth = 1
 
-vim.opt.foldmethod = "indent"
-vim.opt.shiftwidth = 1
-vim.o.shiftwidth = 1
+vim.o.foldmethod = "expr"
+vim.o.foldlevel = 99
+vim.o.foldexpr = "nvim_treesitter#foldexpr()"
+
+-- Make sure you have treesitter installed and markdown parser enabled
+require('nvim-treesitter.configs').setup {
+  ensure_installed = { "markdown" },
+  highlight = { enable = true },
+}
+
 
 -- [[ Basic Keymaps ]]
 
