@@ -306,6 +306,14 @@ require('nvim-treesitter.configs').setup {
 }
 
 
+-- Enable syntax-based folding for Markdown
+vim.g.markdown_folding = 1
+vim.opt.foldmethod = 'expr'
+vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
+
+
+
+
 -- [[ Basic Keymaps ]]
 
 
