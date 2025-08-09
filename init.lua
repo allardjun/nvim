@@ -311,6 +311,17 @@ vim.g.markdown_folding = 1
 vim.opt.foldmethod = 'expr'
 vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
 
+-- Custom highlighting for #labels in markdown
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "markdown",
+  callback = function()
+    vim.cmd([[
+      syntax match markdownLabel /#\w\+/
+      highlight markdownLabel guifg=#ff69b4 ctermfg=205
+    ]])
+  end,
+})
+
 
 
 
