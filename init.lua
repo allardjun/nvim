@@ -288,17 +288,64 @@ vim.o.completeopt = 'menuone,noselect'
 vim.o.termguicolors = true
 
 -- Added by Jun for code folding
-vim.o.foldmethod = "indent"
 vim.o.foldlevel = 99
-
-vim.opt.foldmethod = "indent"
 vim.opt.shiftwidth = 1
 vim.o.shiftwidth = 1
 
--- Enable syntax-based folding for Markdown
-vim.g.markdown_folding = 1
+-- Use Treesitter folding by default for most files
 vim.opt.foldmethod = 'expr'
 vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
+
+-- Enable syntax-based folding for Markdown
+vim.g.markdown_folding = 1
+
+-- Custom fold expression for Markdown: folds both headers (by level) and lists (by indent)
+function MarkdownFoldExpr(lnum)
+  local line = vim.fn.getline(lnum)
+  local next_line = vim.fn.getline(lnum + 1)
+
+  -- Check if current line is a header
+  local header_level = line:match('^(#+)%s')
+  if header_level then
+    return '>' .. #header_level
+  end
+
+  -- Check if next line is a header (end fold before it)
+  local next_header = next_line:match('^(#+)%s')
+  if next_header then
+    return '<' .. #next_header
+  end
+
+  -- For non-headers, use indent-based folding (for lists)
+  local indent = line:match('^(%s*)')
+  local next_indent = next_line:match('^(%s*)')
+
+  -- Empty lines inherit fold level
+  if line:match('^%s*$') then
+    return '='
+  end
+
+  -- If next line is more indented, start a fold
+  if next_indent and indent and #next_indent > #indent and not next_line:match('^%s*$') then
+    return 'a1'
+  end
+
+  -- If next line is less indented, end fold
+  if next_indent and indent and #next_indent < #indent and not next_line:match('^%s*$') then
+    return 's1'
+  end
+
+  return '='
+end
+
+-- Override folding for Markdown files to use custom fold expression
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "markdown",
+  callback = function()
+    vim.opt_local.foldmethod = "expr"
+    vim.opt_local.foldexpr = "v:lua.MarkdownFoldExpr(v:lnum)"
+  end,
+})
 
 
 
