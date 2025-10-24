@@ -167,7 +167,7 @@ require('lazy').setup({
     -- See `:help lualine.txt`
     opts = {
       options = {
-        theme = 'onedark',
+        theme = 'auto',  -- Auto-detect from colorscheme (kanagawa)
         component_separators = '|',
         section_separators = '',
       },
