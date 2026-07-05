@@ -287,63 +287,101 @@ vim.o.completeopt = 'menuone,noselect'
 -- NOTE: You should make sure your terminal supports this
 vim.o.termguicolors = true
 
--- Added by Jun for code folding
+-- ============================================================================
+-- Folding  (added/reworked by Jun)
+-- ============================================================================
+-- Start every window fully unfolded; folds are opt-in via za/zc/zM.
 vim.o.foldlevel = 99
-vim.opt.shiftwidth = 1
-vim.o.shiftwidth = 1
+vim.o.foldlevelstart = 99
 
--- Use Treesitter folding by default for most files
+-- Default for code: Treesitter structural folding (functions, blocks, ...).
 vim.opt.foldmethod = 'expr'
 vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
 
--- Enable syntax-based folding for Markdown
-vim.g.markdown_folding = 1
+-- Fall back to plain indent-based folding for filetypes that have no
+-- Treesitter parser (plain text, some config formats, ...). Indent width comes
+-- from the buffer's shiftwidth, which vim-sleuth auto-detects per file.
+-- Markdown has its own expression below, so it is skipped here.
+vim.api.nvim_create_autocmd('FileType', {
+  callback = function(args)
+    if args.match == 'markdown' then
+      return
+    end
+    local lang = vim.treesitter.language.get_lang(args.match) or args.match
+    local ok, parser = pcall(vim.treesitter.get_parser, args.buf, lang, { error = false })
+    if not ok or not parser then
+      vim.opt_local.foldmethod = 'indent'
+    end
+  end,
+})
 
--- Custom fold expression for Markdown: folds both headers (by level) and lists (by indent)
-function MarkdownFoldExpr(lnum)
-  local line = vim.fn.getline(lnum)
-  local next_line = vim.fn.getline(lnum + 1)
+-- ----------------------------------------------------------------------------
+-- Markdown folding: headings nest by '#' depth, lists/nested lists nest by
+-- indentation, and list items fold *inside* their enclosing heading. Fenced
+-- code blocks are skipped so that '#' comments inside code aren't mistaken for
+-- headings. Fold levels for the whole buffer are computed once per change and
+-- cached (keyed by changedtick) so this stays O(n), not O(n^2).
+-- ----------------------------------------------------------------------------
+local md_fold_cache = {}
 
-  -- Check if current line is a header
-  local header_level = line:match('^(#+)%s')
-  if header_level then
-    return '>' .. #header_level
+local function compute_markdown_fold_levels(bufnr)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local levels = {}
+  local in_fence = false
+  local base = 0 -- fold level of the current enclosing heading (0 = none)
+  for idx, line in ipairs(lines) do
+    if line:match('^%s*```') or line:match('^%s*~~~') then
+      -- Fence delimiter: stays in the current fold, then flips fence state.
+      levels[idx] = base
+      in_fence = not in_fence
+    elseif in_fence then
+      -- Inside a code block: keep flat, don't parse headings/lists.
+      levels[idx] = base
+    else
+      local hashes = line:match('^(#+)%s')
+      if hashes then
+        base = #hashes
+        levels[idx] = '>' .. #hashes -- start a new fold at this heading level
+      elseif line:match('^%s*$') then
+        levels[idx] = '=' -- blank lines inherit, so folds don't break on them
+      else
+        local indent = (line:match('^(%s*)') or ''):gsub('\t', '  ')
+        local is_list = line:match('^%s*[-*+]%s') or line:match('^%s*%d+[.)]%s')
+        if is_list or #indent > 0 then
+          -- One extra fold level per 2 columns of indent, nested under `base`.
+          levels[idx] = base + math.floor(#indent / 2) + 1
+        else
+          levels[idx] = base -- flush-left paragraph text sits at heading level
+        end
+      end
+    end
   end
-
-  -- Check if next line is a header (end fold before it)
-  local next_header = next_line:match('^(#+)%s')
-  if next_header then
-    return '<' .. #next_header
-  end
-
-  -- For non-headers, use indent-based folding (for lists)
-  local indent = line:match('^(%s*)')
-  local next_indent = next_line:match('^(%s*)')
-
-  -- Empty lines inherit fold level
-  if line:match('^%s*$') then
-    return '='
-  end
-
-  -- If next line is more indented, start a fold
-  if next_indent and indent and #next_indent > #indent and not next_line:match('^%s*$') then
-    return 'a1'
-  end
-
-  -- If next line is less indented, end fold
-  if next_indent and indent and #next_indent < #indent and not next_line:match('^%s*$') then
-    return 's1'
-  end
-
-  return '='
+  return levels
 end
 
--- Override folding for Markdown files to use custom fold expression
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = "markdown",
+function MarkdownFoldExpr(lnum)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+  local cache = md_fold_cache[bufnr]
+  if not cache or cache.tick ~= tick then
+    cache = { tick = tick, levels = compute_markdown_fold_levels(bufnr) }
+    md_fold_cache[bufnr] = cache
+  end
+  return cache.levels[lnum] or '0'
+end
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'markdown',
   callback = function()
-    vim.opt_local.foldmethod = "expr"
-    vim.opt_local.foldexpr = "v:lua.MarkdownFoldExpr(v:lnum)"
+    vim.opt_local.foldmethod = 'expr'
+    vim.opt_local.foldexpr = 'v:lua.MarkdownFoldExpr(v:lnum)'
+  end,
+})
+
+-- Drop cached fold levels when a buffer is wiped out.
+vim.api.nvim_create_autocmd('BufWipeout', {
+  callback = function(args)
+    md_fold_cache[args.buf] = nil
   end,
 })
 
