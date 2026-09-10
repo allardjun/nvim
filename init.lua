@@ -718,5 +718,7 @@ vim.keymap.set("x", "<leader>*", [[:<C-u>'<,'>normal! I * <CR>]], {
   desc = "Prefix selected lines with ' * '"
 })
 -- add italic and bold support for Neovide (doesn't matter for iTerm)
--- vim.opt.guifont = { "FiraCode Nerd Font Mono", "h14" }
-vim.opt.guifont = "JetBrains Mono:Fira Code:h14"
+-- In 'guifont' a comma separates fallback fonts and a colon introduces an option, so "A:B:h14" asks for font A with an option named B.
+-- This used to read "JetBrains Mono:Fira Code:h14", which Neovide rejected wholesale before falling back to SF Mono, a font not installed here.
+-- Menlo is the fallback because it ships with macOS; JetBrains Mono supplies the bold and italic faces.
+vim.opt.guifont = "JetBrains Mono,Menlo:h14"
