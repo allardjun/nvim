@@ -68,18 +68,20 @@ require('lazy').setup({
     -- LSP Configuration & Plugins
     'neovim/nvim-lspconfig',
     dependencies = {
-      -- Automatically install LSPs to stdpath for neovim
-      'williamboman/mason.nvim',
-      'williamboman/mason-lspconfig.nvim',
+      -- Automatically install LSPs to stdpath for neovim.
+      -- Mason v2 lives under the mason-org account; the old williamboman/* paths still redirect but are no longer canonical.
+      'mason-org/mason.nvim',
+      'mason-org/mason-lspconfig.nvim',
 
       -- Useful status updates for LSP
       -- NOTE: `opts = {}` is the same as calling `require('fidget').setup({})`
       --{ 'j-hui/fidget.nvim', opts = {} },
-
-      -- Additional lua configuration, makes nvim stuff amazing!
-      'folke/neodev.nvim',
     },
   },
+
+  -- Lua language support for editing Neovim config itself.
+  -- Replaces neodev.nvim, which its author archived in favour of this.
+  { 'folke/lazydev.nvim', ft = 'lua', opts = {} },
 
   -- Added by Jun
   'tpope/vim-surround',
@@ -101,7 +103,13 @@ require('lazy').setup({
   -- },
 
   -- Useful plugin to show you pending keybinds.
-  { 'folke/which-key.nvim', opts = {} },
+  -- Icons are off because they need a Nerd Font plus an icon-provider plugin, and render as tofu without one.
+  {
+    'folke/which-key.nvim',
+    opts = {
+      icons = { mappings = false },
+    },
+  },
   {
     -- Adds git related signs to the gutter, as well as utilities for managing changes
     'lewis6991/gitsigns.nvim',
@@ -183,8 +191,8 @@ require('lazy').setup({
     opts = {},
   },
 
-  -- "gc" to comment visual regions/lines
-  { 'numToStr/Comment.nvim', opts = {} },
+  -- NOTE: "gc"/"gcc" commenting used to come from numToStr/Comment.nvim.
+  -- Neovim ships it built in since 0.10, so the plugin was removed and the keymaps are unchanged.
 
   -- Fuzzy Finder (files, lsp, etc)
   {
@@ -208,11 +216,11 @@ require('lazy').setup({
   },
 
   {
-    -- Highlight, edit, and navigate code
+    -- Highlight, edit, and navigate code.
+    -- The `main` branch is the maintained rewrite; `master` is frozen and its queries no longer match the grammars Neovim 0.12 bundles.
     'nvim-treesitter/nvim-treesitter',
-    dependencies = {
-      'nvim-treesitter/nvim-treesitter-textobjects',
-    },
+    branch = 'main',
+    lazy = false,
     build = ':TSUpdate',
   },
 
@@ -244,11 +252,22 @@ require('lazy').setup({
   }
 
 
-}, {}) -- done lazy setup call
+}, {
+  -- No plugin in this config is a luarocks package, and without this lazy.nvim
+  -- reports a missing hererocks/luarocks install as a health error.
+  rocks = { enabled = false },
+}) -- done lazy setup call
 
 -- [[ Setting options ]]
 -- See `:help vim.o`
 -- NOTE: You can change these options as you wish!
+
+-- Remote-plugin providers.
+-- Nothing in this config uses them, so turn them off rather than let :checkhealth keep reporting them as missing.
+vim.g.loaded_node_provider = 0
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
+vim.g.loaded_python3_provider = 0
 
 -- Set highlight on search
 vim.o.hlsearch = false
@@ -295,21 +314,20 @@ vim.o.foldlevel = 99
 vim.o.foldlevelstart = 99
 
 -- Default for code: Treesitter structural folding (functions, blocks, ...).
+-- This is Neovim's own fold expression; `nvim_treesitter#foldexpr()` belonged to the plugin's frozen master branch and no longer exists.
 vim.opt.foldmethod = 'expr'
-vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
+vim.opt.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
 
--- Fall back to plain indent-based folding for filetypes that have no
--- Treesitter parser (plain text, some config formats, ...). Indent width comes
--- from the buffer's shiftwidth, which vim-sleuth auto-detects per file.
--- Markdown has its own expression below, so it is skipped here.
+-- Start Treesitter per buffer, and fall back to plain indent-based folding for filetypes that have no parser (plain text, some config formats, ...).
+-- The `main` branch of nvim-treesitter starts nothing on its own, so highlighting and indent are turned on here.
+-- Indent width for the fallback comes from the buffer's shiftwidth, which vim-sleuth auto-detects per file.
+-- Markdown is excluded from the fallback because it has its own fold expression below.
 vim.api.nvim_create_autocmd('FileType', {
   callback = function(args)
-    if args.match == 'markdown' then
-      return
-    end
     local lang = vim.treesitter.language.get_lang(args.match) or args.match
-    local ok, parser = pcall(vim.treesitter.get_parser, args.buf, lang, { error = false })
-    if not ok or not parser then
+    if pcall(vim.treesitter.start, args.buf, lang) then
+      vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+    elseif args.match ~= 'markdown' then
       vim.opt_local.foldmethod = 'indent'
     end
   end,
@@ -495,201 +513,110 @@ vim.keymap.set('n', '<leader>sd', require('telescope.builtin').diagnostics, { de
 vim.keymap.set('n', '<leader>sr', require('telescope.builtin').resume, { desc = '[S]earch [R]esume' })
 
 -- [[ Configure Treesitter ]]
--- See `:help nvim-treesitter`
--- Defer Treesitter setup after first render to improve startup time of 'nvim {filename}'
-vim.defer_fn(function()
-  require('nvim-treesitter.configs').setup {
-    -- Add languages to be installed here that you want installed for treesitter
-    ensure_installed = { 'c', 'cpp', 'go', 'lua', 'python', 'rust', 'tsx', 'javascript', 'typescript', 'vimdoc', 'vim', 'bash' },
+-- See `:help nvim-treesitter`.
+-- On the `main` branch this module only installs parsers; highlighting, indent and folds are switched on by the FileType autocmd in the folding section above.
+-- Neovim bundles parsers for c, lua, markdown, query, vim and vimdoc, so the rest are fetched here.
+local ts_langs = {
+  'bash',
+  'c',
+  'cpp',
+  'go',
+  'javascript',
+  'lua',
+  'markdown',
+  'markdown_inline',
+  'python',
+  'query',
+  'rust',
+  'tsx',
+  'typescript',
+  'vim',
+  'vimdoc',
+}
 
-    -- Autoinstall languages that are not installed. Defaults to false (but you can change for yourself!)
-    auto_install = false,
+-- Only fetch what is actually missing.
+-- `install()` is not a no-op for already-installed parsers, so calling it unconditionally would re-download them on every startup.
+local installed = require('nvim-treesitter.config').get_installed 'parsers'
+local missing = vim.tbl_filter(function(lang)
+  return not vim.tbl_contains(installed, lang)
+end, ts_langs)
 
-    highlight = { enable = true },
-    indent = { enable = true },
-    incremental_selection = {
-      enable = true,
-      keymaps = {
-        init_selection = '<c-space>',
-        node_incremental = '<c-space>',
-        scope_incremental = '<c-s>',
-        node_decremental = '<M-space>',
-      },
-    },
-    textobjects = {
-      select = {
-        enable = true,
-        lookahead = true, -- Automatically jump forward to textobj, similar to targets.vim
-        keymaps = {
-          -- You can use the capture groups defined in textobjects.scm
-          ['aa'] = '@parameter.outer',
-          ['ia'] = '@parameter.inner',
-          ['af'] = '@function.outer',
-          ['if'] = '@function.inner',
-          ['ac'] = '@class.outer',
-          ['ic'] = '@class.inner',
-        },
-      },
-      move = {
-        enable = true,
-        set_jumps = true, -- whether to set jumps in the jumplist
-        goto_next_start = {
-          [']m'] = '@function.outer',
-          [']]'] = '@class.outer',
-        },
-        goto_next_end = {
-          [']M'] = '@function.outer',
-          [']['] = '@class.outer',
-        },
-        goto_previous_start = {
-          ['[m'] = '@function.outer',
-          ['[['] = '@class.outer',
-        },
-        goto_previous_end = {
-          ['[M'] = '@function.outer',
-          ['[]'] = '@class.outer',
-        },
-      },
-      swap = {
-        enable = true,
-        swap_next = {
-          ['<leader>a'] = '@parameter.inner',
-        },
-        swap_previous = {
-          ['<leader>A'] = '@parameter.inner',
-        },
-      },
-    },
-  }
-end, 0)
+if #missing > 0 then
+  require('nvim-treesitter').install(missing)
+end
+
+-- NOTE: the `<c-space>` incremental-selection maps that used to live here are gone.
+-- The `main` branch dropped that feature and Neovim ships no equivalent.
 
 -- [[ Configure LSP ]]
---  This function gets run when an LSP connects to a particular buffer.
-local on_attach = function(_, bufnr)
-  -- NOTE: Remember that lua is a real programming language, and as such it is possible
-  -- to define small helper and utility functions so you don't have to repeat yourself
-  -- many times.
-  --
-  -- In this case, we create a function that lets us more easily define mappings specific
-  -- for LSP related items. It sets the mode, buffer and description for us each time.
-  local nmap = function(keys, func, desc)
-    if desc then
-      desc = 'LSP: ' .. desc
+-- These keymaps are attached per buffer, once a language server actually connects to it.
+-- The old `on_attach` callback plumbing is gone: Neovim 0.11+ fires LspAttach for this.
+vim.api.nvim_create_autocmd('LspAttach', {
+  group = vim.api.nvim_create_augroup('JunLspAttach', { clear = true }),
+  callback = function(event)
+    local nmap = function(keys, func, desc)
+      vim.keymap.set('n', keys, func, { buffer = event.buf, desc = desc and 'LSP: ' .. desc })
     end
 
-    vim.keymap.set('n', keys, func, { buffer = bufnr, desc = desc })
-  end
+    nmap('<leader>rn', vim.lsp.buf.rename, '[R]e[n]ame')
+    nmap('<leader>ca', vim.lsp.buf.code_action, '[C]ode [A]ction')
 
-  nmap('<leader>rn', vim.lsp.buf.rename, '[R]e[n]ame')
-  nmap('<leader>ca', vim.lsp.buf.code_action, '[C]ode [A]ction')
+    nmap('gd', require('telescope.builtin').lsp_definitions, '[G]oto [D]efinition')
+    nmap('gr', require('telescope.builtin').lsp_references, '[G]oto [R]eferences')
+    nmap('gI', require('telescope.builtin').lsp_implementations, '[G]oto [I]mplementation')
+    nmap('<leader>D', require('telescope.builtin').lsp_type_definitions, 'Type [D]efinition')
+    nmap('<leader>ds', require('telescope.builtin').lsp_document_symbols, '[D]ocument [S]ymbols')
+    nmap('<leader>ws', require('telescope.builtin').lsp_dynamic_workspace_symbols, '[W]orkspace [S]ymbols')
 
-  nmap('gd', require('telescope.builtin').lsp_definitions, '[G]oto [D]efinition')
-  nmap('gr', require('telescope.builtin').lsp_references, '[G]oto [R]eferences')
-  nmap('gI', require('telescope.builtin').lsp_implementations, '[G]oto [I]mplementation')
-  nmap('<leader>D', require('telescope.builtin').lsp_type_definitions, 'Type [D]efinition')
-  nmap('<leader>ds', require('telescope.builtin').lsp_document_symbols, '[D]ocument [S]ymbols')
-  nmap('<leader>ws', require('telescope.builtin').lsp_dynamic_workspace_symbols, '[W]orkspace [S]ymbols')
+    -- See `:help K` for why this keymap
+    nmap('K', vim.lsp.buf.hover, 'Hover Documentation')
+    nmap('<C-k>', vim.lsp.buf.signature_help, 'Signature Documentation')
 
-  -- See `:help K` for why this keymap
-  nmap('K', vim.lsp.buf.hover, 'Hover Documentation')
-  nmap('<C-k>', vim.lsp.buf.signature_help, 'Signature Documentation')
+    -- Lesser used LSP functionality
+    nmap('gD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
+    nmap('<leader>wa', vim.lsp.buf.add_workspace_folder, '[W]orkspace [A]dd Folder')
+    nmap('<leader>wr', vim.lsp.buf.remove_workspace_folder, '[W]orkspace [R]emove Folder')
+    nmap('<leader>wl', function()
+      print(vim.inspect(vim.lsp.buf.list_workspace_folders()))
+    end, '[W]orkspace [L]ist Folders')
 
-  -- Lesser used LSP functionality
-  nmap('gD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
-  nmap('<leader>wa', vim.lsp.buf.add_workspace_folder, '[W]orkspace [A]dd Folder')
-  nmap('<leader>wr', vim.lsp.buf.remove_workspace_folder, '[W]orkspace [R]emove Folder')
-  nmap('<leader>wl', function()
-    print(vim.inspect(vim.lsp.buf.list_workspace_folders()))
-  end, '[W]orkspace [L]ist Folders')
-
-  -- Create a command `:Format` local to the LSP buffer
-  vim.api.nvim_buf_create_user_command(bufnr, 'Format', function(_)
-    vim.lsp.buf.format()
-  end, { desc = 'Format current buffer with LSP' })
-end
+    -- Create a command `:Format` local to the LSP buffer
+    vim.api.nvim_buf_create_user_command(event.buf, 'Format', function(_)
+      vim.lsp.buf.format()
+    end, { desc = 'Format current buffer with LSP' })
+  end,
+})
 
 -- document existing key chains
--- which-key v3 replaced .register() with .add() and a new spec format. Prefer
--- the new API when the installed version provides it, and fall back to the
--- classic .register() otherwise, so this keeps working across a `:Lazy update`.
 local wk = require('which-key')
-if wk.add then
-  wk.add {
-    { '<leader>c', group = '[C]ode' },
-    { '<leader>d', group = '[D]ocument' },
-    { '<leader>g', group = '[G]it' },
-    { '<leader>h', group = 'More git' },
-    { '<leader>r', group = '[R]ename' },
-    { '<leader>s', group = '[S]earch' },
-    { '<leader>w', group = '[W]orkspace' },
-  }
-else
-  wk.register {
-    ['<leader>c'] = { name = '[C]ode', _ = 'which_key_ignore' },
-    ['<leader>d'] = { name = '[D]ocument', _ = 'which_key_ignore' },
-    ['<leader>g'] = { name = '[G]it', _ = 'which_key_ignore' },
-    ['<leader>h'] = { name = 'More git', _ = 'which_key_ignore' },
-    ['<leader>r'] = { name = '[R]ename', _ = 'which_key_ignore' },
-    ['<leader>s'] = { name = '[S]earch', _ = 'which_key_ignore' },
-    ['<leader>w'] = { name = '[W]orkspace', _ = 'which_key_ignore' },
-  }
-end
+wk.add {
+  { '<leader>c', group = '[C]ode' },
+  { '<leader>d', group = '[D]ocument' },
+  { '<leader>g', group = '[G]it' },
+  { '<leader>h', group = 'More git' },
+  { '<leader>r', group = '[R]ename' },
+  { '<leader>s', group = '[S]earch' },
+  { '<leader>w', group = '[W]orkspace' },
+}
 
--- mason-lspconfig requires that these setup functions are called in this order
--- before setting up the servers.
-require('mason').setup()
-require('mason-lspconfig').setup()
+-- Enable the following language servers.
+-- Settings go through `vim.lsp.config`, which is the 0.11+ replacement for `require('lspconfig')[name].setup{}`.
+-- mason-lspconfig v2 then enables every server it has installed, so there is no setup loop any more.
+local servers = { 'lua_ls' }
 
--- Enable the following language servers
---  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
---
---  Add any additional override configuration in the following tables. They will be passed to
---  the `settings` field of the server config. You must look up that documentation yourself.
---
---  If you want to override the default filetypes that your language server will attach to you can
---  define the property 'filetypes' to the map in question.
-local servers = {
-  -- clangd = {},
-  -- gopls = {},
-  -- pyright = {},
-  -- rust_analyzer = {},
-  -- tsserver = {},
-  -- html = { filetypes = { 'html', 'twig', 'hbs'} },
-
-  lua_ls = {
+vim.lsp.config('lua_ls', {
+  settings = {
     Lua = {
       workspace = { checkThirdParty = false },
       telemetry = { enable = false },
     },
   },
+})
+
+require('mason').setup()
+require('mason-lspconfig').setup {
+  ensure_installed = servers,
 }
-
--- Setup neovim lua configuration
-require('neodev').setup()
-
--- Default client capabilities. Previously this was a nil global because the
--- nvim-cmp block below is disabled; define proper defaults instead. If you
--- re-enable a completion plugin, extend these (e.g. blink.cmp / cmp_nvim_lsp).
-local capabilities = vim.lsp.protocol.make_client_capabilities()
-
--- Ensure the servers above are installed
-local mason_lspconfig = require 'mason-lspconfig'
-
-mason_lspconfig.setup {
-  ensure_installed = vim.tbl_keys(servers),
-}
-
--- mason-lspconfig v2 removed setup_handlers(). Configure each server directly
--- instead: this works on the installed v1 and survives an update to v2, since
--- we now only rely on mason-lspconfig for `ensure_installed` above.
-for server_name, server_settings in pairs(servers) do
-  require('lspconfig')[server_name].setup {
-    capabilities = capabilities,
-    on_attach = on_attach,
-    settings = server_settings,
-    filetypes = server_settings.filetypes,
-  }
-end
 
 -- [[ Configure nvim-cmp ]]
 -- See `:help cmp`
