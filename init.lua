@@ -306,6 +306,21 @@ vim.o.completeopt = 'menuone,noselect'
 -- NOTE: You should make sure your terminal supports this
 vim.o.termguicolors = true
 
+-- Output of `:!cmd` is tagged StderrMsg or StdoutMsg by stream, and StderrMsg links to ErrorMsg by default.
+-- Git reports routine progress on stderr -- "To <remote>" and the ref update line after a successful push -- so a push that worked fine renders entirely in red.
+-- Match plain message text instead; a command that actually failed still says so in its own output.
+-- Re-applied on ColorScheme because loading a colorscheme resets highlight groups.
+local function unred_stderr()
+  vim.api.nvim_set_hl(0, 'StderrMsg', {})
+end
+
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('JunStderrMsg', { clear = true }),
+  callback = unred_stderr,
+})
+
+unred_stderr()
+
 -- ============================================================================
 -- Folding  (added/reworked by Jun)
 -- ============================================================================
