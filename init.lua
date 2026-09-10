@@ -164,9 +164,9 @@ require('lazy').setup({
     --'navarasu/onedark.nvim',
     'rebelot/kanagawa.nvim',
     priority = 1000,
-    config = function()
-      vim.cmd.colorscheme 'kanagawa'
-    end,
+    lazy = false,
+    -- The colorscheme is deliberately not set here.
+    -- Which of kanagawa and glamour loads is decided in the colorscheme section further down, from the remembered choice.
   },
 
   {
@@ -320,6 +320,67 @@ vim.api.nvim_create_autocmd('ColorScheme', {
 })
 
 unred_stderr()
+
+-- ============================================================================
+-- Colorscheme
+-- ============================================================================
+-- Two themes are kept side by side: kanagawa, and glamour in colors/glamour.lua,
+-- ported from the VS Code theme in ~/git/int/glamour-dark.
+-- The choice is remembered in the state directory rather than in this file, since
+-- it is a per-machine preference rather than part of the configuration.
+local themes = { 'kanagawa', 'glamour' }
+local theme_state = vim.fn.stdpath 'state' .. '/colorscheme.txt'
+
+local function remembered_theme()
+  local ok, saved = pcall(vim.fn.readfile, theme_state)
+  if ok and saved and saved[1] and vim.tbl_contains(themes, saved[1]) then
+    return saved[1]
+  end
+  return themes[1]
+end
+
+-- `remember` is false on startup so that merely opening Neovim never rewrites
+-- the file, and true when the choice is an explicit one.
+local function set_theme(name, remember)
+  if not pcall(vim.cmd.colorscheme, name) then
+    vim.notify('No colorscheme named ' .. name, vim.log.levels.WARN)
+    return false
+  end
+  if remember then
+    pcall(vim.fn.writefile, { name }, theme_state)
+  end
+  return true
+end
+
+set_theme(remembered_theme(), false)
+
+vim.api.nvim_create_user_command('Theme', function(opts)
+  if opts.args == '' then
+    print(vim.g.colors_name)
+  else
+    set_theme(opts.args, true)
+  end
+end, {
+  nargs = '?',
+  complete = function()
+    return themes
+  end,
+  desc = 'Show the current colorscheme, or switch to one and remember it',
+})
+
+vim.keymap.set('n', '<leader>ut', function()
+  local current = vim.g.colors_name
+  local next_theme = themes[1]
+  for i, name in ipairs(themes) do
+    if name == current then
+      next_theme = themes[i % #themes + 1]
+      break
+    end
+  end
+  if set_theme(next_theme, true) then
+    vim.notify('colorscheme: ' .. next_theme)
+  end
+end, { desc = '[U]I: cycle [t]heme' })
 
 -- ============================================================================
 -- Folding  (added/reworked by Jun)
@@ -611,6 +672,7 @@ wk.add {
   { '<leader>h', group = 'More git' },
   { '<leader>r', group = '[R]ename' },
   { '<leader>s', group = '[S]earch' },
+  { '<leader>u', group = '[U]I' },
   { '<leader>w', group = '[W]orkspace' },
 }
 
