@@ -479,6 +479,36 @@ vim.api.nvim_create_autocmd('BufWipeout', {
   end,
 })
 
+-- ----------------------------------------------------------------------------
+-- Markdown hashtags: a '#' followed directly by a word, like #project or #todo/next.
+-- The markdown parser has no node for these (they are ordinary paragraph text), so a regex match is used instead of a treesitter query.
+-- The '#' must be at the start of the line or after whitespace, which keeps `C#` and `a#b` out, and it must be followed immediately by a word character, which keeps `# Heading` out.
+-- matchadd() is window-local and outlives the buffer shown in the window, so this both adds the match for markdown and removes it again when the window moves on to something else.
+-- The MarkdownHashtag group is defined by colors/glamour.lua; for any other colorscheme it falls back to Special.
+-- ----------------------------------------------------------------------------
+local hashtag_pattern = [[\v(^|\s)\zs#[[:alnum:]_][[:alnum:]_/-]*>]]
+
+vim.api.nvim_create_autocmd({ 'FileType', 'BufWinEnter' }, {
+  group = vim.api.nvim_create_augroup('JunMarkdownHashtag', { clear = true }),
+  callback = function(args)
+    local is_markdown = vim.bo[args.buf].filetype == 'markdown'
+    local id = vim.w.markdown_hashtag_match
+    if is_markdown and not id then
+      vim.w.markdown_hashtag_match = vim.fn.matchadd('MarkdownHashtag', hashtag_pattern)
+    elseif not is_markdown and id then
+      pcall(vim.fn.matchdelete, id)
+      vim.w.markdown_hashtag_match = nil
+    end
+  end,
+})
+
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('JunMarkdownHashtagHl', { clear = true }),
+  callback = function()
+    vim.api.nvim_set_hl(0, 'MarkdownHashtag', { default = true, link = 'Special' })
+  end,
+})
+
 
 
 

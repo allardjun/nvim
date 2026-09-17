@@ -312,6 +312,10 @@ hl('@markup.list.checked', { fg = p.soft_sage })
 hl('@markup.list.unchecked', { fg = p.deep_taupe })
 hl('@markup.quote', { fg = p.dark_brass, italic = true })
 hl('@markup.math', { fg = p.blush_satin })
+
+-- Hashtags like #project are matched by a regex in init.lua, not by treesitter,
+-- because the markdown parser has no node for them.
+hl('MarkdownHashtag', { fg = p.blush_satin })
 hl('@markup.environment', { fg = p.champagne_brass })
 hl('@markup.environment.name', { fg = p.champagne_brass })
 
