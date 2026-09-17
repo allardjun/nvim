@@ -52,6 +52,10 @@ vim.opt.rtp:prepend(lazypath)
 --
 --  You can also configure plugins after the setup call,
 --    as they will be available in your neovim runtime.
+-- Forward declaration.
+-- Defined in the markdown hashtag section further down, but referenced by zen-mode's on_open hook inside the plugin spec below.
+local sync_hashtag_match
+
 require('lazy').setup({
   -- NOTE: First, some plugins that don't require any configuration
 
@@ -248,7 +252,13 @@ require('lazy').setup({
 
  {
   "folke/zen-mode.nvim",
-    opts = {},
+    opts = {
+      -- The zen window is a second window onto the same buffer, and matchadd() is window-local.
+      -- WinEnter should already cover this, but the hook is cheap insurance against the float ever being opened with autocmds suppressed.
+      on_open = function()
+        sync_hashtag_match()
+      end,
+    },
   }
 
 
@@ -484,22 +494,27 @@ vim.api.nvim_create_autocmd('BufWipeout', {
 -- The markdown parser has no node for these (they are ordinary paragraph text), so a regex match is used instead of a treesitter query.
 -- The '#' must be at the start of the line or after whitespace, which keeps `C#` and `a#b` out, and it must be followed immediately by a word character, which keeps `# Heading` out.
 -- matchadd() is window-local and outlives the buffer shown in the window, so this both adds the match for markdown and removes it again when the window moves on to something else.
+-- It has to run on WinEnter as well as FileType and BufWinEnter: BufWinEnter only fires when a buffer goes from hidden to displayed, not when a buffer that is already on screen is shown in a second window, which is exactly what :split and zen-mode do.
 -- The MarkdownHashtag group is defined by colors/glamour.lua; for any other colorscheme it falls back to Special.
 -- ----------------------------------------------------------------------------
 local hashtag_pattern = [[\v(^|\s)\zs#[[:alnum:]_][[:alnum:]_/-]*>]]
 
-vim.api.nvim_create_autocmd({ 'FileType', 'BufWinEnter' }, {
+-- Bring the current window's match in line with the filetype of the buffer it shows.
+-- Declared as a local near the top of this file so that zen-mode's on_open hook can call it.
+sync_hashtag_match = function()
+  local is_markdown = vim.bo.filetype == 'markdown'
+  local id = vim.w.markdown_hashtag_match
+  if is_markdown and not id then
+    vim.w.markdown_hashtag_match = vim.fn.matchadd('MarkdownHashtag', hashtag_pattern)
+  elseif not is_markdown and id then
+    pcall(vim.fn.matchdelete, id)
+    vim.w.markdown_hashtag_match = nil
+  end
+end
+
+vim.api.nvim_create_autocmd({ 'FileType', 'BufWinEnter', 'WinEnter' }, {
   group = vim.api.nvim_create_augroup('JunMarkdownHashtag', { clear = true }),
-  callback = function(args)
-    local is_markdown = vim.bo[args.buf].filetype == 'markdown'
-    local id = vim.w.markdown_hashtag_match
-    if is_markdown and not id then
-      vim.w.markdown_hashtag_match = vim.fn.matchadd('MarkdownHashtag', hashtag_pattern)
-    elseif not is_markdown and id then
-      pcall(vim.fn.matchdelete, id)
-      vim.w.markdown_hashtag_match = nil
-    end
-  end,
+  callback = sync_hashtag_match,
 })
 
 vim.api.nvim_create_autocmd('ColorScheme', {
