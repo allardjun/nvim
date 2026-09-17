@@ -490,6 +490,72 @@ vim.api.nvim_create_autocmd('BufWipeout', {
 })
 
 -- ----------------------------------------------------------------------------
+-- Fold text: show a closed fold as its first line in that line's real highlighting, followed by a dim line count.
+-- The default renders "+--- 7 lines: ## Heading" in the Folded colour, so a collapsed heading stops looking like a heading and `zM` gives a wall of dashes instead of an outline.
+-- Since Neovim 0.10 'foldtext' may return a list of {text, highlight} chunks, drawn like overlay virtual text on top of the Folded line, which is what makes this possible.
+-- Highlights come from every treesitter tree covering the line, including injected ones such as markdown_inline, so bold or code inside a heading keeps its styling.
+-- ----------------------------------------------------------------------------
+local function fold_text_chunks(bufnr, first, last)
+  local line = (vim.api.nvim_buf_get_lines(bufnr, first - 1, first, false)[1] or ''):gsub('%s+$', '')
+  local row = first - 1
+
+  -- One highlight group per byte column, filled in from treesitter captures.
+  -- Later captures overwrite earlier ones, which matches how the highlighter itself resolves overlaps closely enough for a single line.
+  -- Captures that carry no colour of their own (spell, conceal, and the query-internal ones beginning with '_') are skipped so they cannot clobber a real one.
+  local hl = {}
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, nil, { error = false })
+  if ok and parser then
+    -- The range is end-exclusive; { row, row } would parse the root tree but skip the injected ones.
+    parser:parse { row, row + 1 }
+    parser:for_each_tree(function(tree, ltree)
+      local query = vim.treesitter.query.get(ltree:lang(), 'highlights')
+      if not query then
+        return
+      end
+      for id, node in query:iter_captures(tree:root(), bufnr, row, row + 1) do
+        local name = query.captures[id]
+        if name ~= 'spell' and name ~= 'nospell' and name ~= 'conceal' and name:sub(1, 1) ~= '_' then
+          local sr, sc, er, ec = node:range()
+          if sr < row then
+            sc = 0
+          end
+          if er > row then
+            ec = #line
+          end
+          for col = sc + 1, math.min(ec, #line) do
+            hl[col] = '@' .. name .. '.' .. ltree:lang()
+          end
+        end
+      end
+    end)
+  end
+
+  -- Coalesce runs of identical highlighting into chunks.
+  local chunks, i = {}, 1
+  while i <= #line do
+    local group = hl[i] or 'Folded'
+    local j = i
+    while j < #line and (hl[j + 1] or 'Folded') == group do
+      j = j + 1
+    end
+    chunks[#chunks + 1] = { line:sub(i, j):gsub('\t', string.rep(' ', vim.bo[bufnr].tabstop)), group }
+    i = j + 1
+  end
+
+  local count = last - first + 1
+  chunks[#chunks + 1] = { string.format('  ⋯ %d line%s', count, count == 1 and '' or 's'), 'Comment' }
+  return chunks
+end
+
+function FoldText()
+  return fold_text_chunks(vim.api.nvim_get_current_buf(), vim.v.foldstart, vim.v.foldend)
+end
+
+vim.opt.foldtext = 'v:lua.FoldText()'
+-- Fill the rest of a closed fold's line with spaces rather than dots, so the Folded background reads as a clean bar behind the heading.
+vim.opt.fillchars:append { fold = ' ' }
+
+-- ----------------------------------------------------------------------------
 -- Markdown hashtags: a '#' followed directly by a word, like #project or #todo/next.
 -- The markdown parser has no node for these (they are ordinary paragraph text), so a regex match is used instead of a treesitter query.
 -- The '#' must be at the start of the line or after whitespace, which keeps `C#` and `a#b` out, and it must be followed immediately by a word character, which keeps `# Heading` out.
