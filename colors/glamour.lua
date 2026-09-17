@@ -274,18 +274,22 @@ hl('@diff.delta', { fg = p.champagne_brass })
 -- parsers rather than assumed, since the two split block and inline structure
 -- between them.
 --
--- Headings descend in emphasis rather than cycling hues: Porcelain Ivory for
--- h1, Champagne Brass for h2, Whipped Crema below that. This mirrors the
--- source theme and keeps a long document's outline readable at a glance.
-hl('@markup.heading.1', { fg = p.porcelain_ivory, bold = true })
+-- Headings: Champagne Brass for h1 and h2, Whipped Crema below that.
+-- This deliberately diverges from the source theme, which gives h1 Porcelain
+-- Ivory; in a long Neovim buffer the brass reads better as "outline" than the
+-- near-white does, so the top two levels share it.
+hl('@markup.heading.1', { fg = p.champagne_brass, bold = true })
 hl('@markup.heading.2', { fg = p.champagne_brass, bold = true })
 hl('@markup.heading.3', { fg = p.whipped_crema, bold = true })
 hl('@markup.heading.4', { fg = p.whipped_crema })
 hl('@markup.heading.5', { fg = p.whipped_crema })
 hl('@markup.heading.6', { fg = p.whipped_crema })
 
-hl('@markup.strong', { fg = p.porcelain_ivory, bold = true })
-hl('@markup.italic', { fg = p.whipped_crema, italic = true })
+-- Emphasis takes Cocktail Fuchsia, the theme's primary accent, rather than the
+-- source theme's ivory and crema. Another deliberate divergence: with headings
+-- now in brass, emphasis needs its own hue to stay visible inside a paragraph.
+hl('@markup.strong', { fg = p.cocktail_fuchsia, bold = true })
+hl('@markup.italic', { fg = p.cocktail_fuchsia, italic = true })
 hl('@markup.strikethrough', { fg = p.deep_taupe, strikethrough = true })
 hl('@markup.underline', { underline = true })
 
@@ -298,9 +302,12 @@ hl('@markup.link', { fg = p.velvet_teal })
 hl('@markup.link.label', { fg = p.blush_satin })
 hl('@markup.link.url', { fg = p.velvet_teal, underline = true })
 
--- List bullets, blockquote bars and the '#' of a heading all share Dark Brass,
--- so document furniture recedes behind the text it is marking up.
-hl('@markup.list', { fg = p.dark_brass })
+-- List bullets take Executive Blue so a nested list's structure stands out
+-- from the prose, while blockquote bars stay Dark Brass via @punctuation.special
+-- and recede behind the text they mark up. A heading's '#' is captured as part
+-- of the heading itself and takes its color.
+-- The blue is a deliberate divergence from the source theme's Dark Brass.
+hl('@markup.list', { fg = p.executive_blue })
 hl('@markup.list.checked', { fg = p.soft_sage })
 hl('@markup.list.unchecked', { fg = p.deep_taupe })
 hl('@markup.quote', { fg = p.dark_brass, italic = true })
