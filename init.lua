@@ -52,6 +52,10 @@ vim.opt.rtp:prepend(lazypath)
 --
 --  You can also configure plugins after the setup call,
 --    as they will be available in your neovim runtime.
+-- Forward declaration.
+-- Defined in the markdown hashtag section further down, but referenced by zen-mode's on_open hook inside the plugin spec below.
+local sync_hashtag_match
+
 require('lazy').setup({
   -- NOTE: First, some plugins that don't require any configuration
 
@@ -68,18 +72,20 @@ require('lazy').setup({
     -- LSP Configuration & Plugins
     'neovim/nvim-lspconfig',
     dependencies = {
-      -- Automatically install LSPs to stdpath for neovim
-      'williamboman/mason.nvim',
-      'williamboman/mason-lspconfig.nvim',
+      -- Automatically install LSPs to stdpath for neovim.
+      -- Mason v2 lives under the mason-org account; the old williamboman/* paths still redirect but are no longer canonical.
+      'mason-org/mason.nvim',
+      'mason-org/mason-lspconfig.nvim',
 
       -- Useful status updates for LSP
       -- NOTE: `opts = {}` is the same as calling `require('fidget').setup({})`
       --{ 'j-hui/fidget.nvim', opts = {} },
-
-      -- Additional lua configuration, makes nvim stuff amazing!
-      'folke/neodev.nvim',
     },
   },
+
+  -- Lua language support for editing Neovim config itself.
+  -- Replaces neodev.nvim, which its author archived in favour of this.
+  { 'folke/lazydev.nvim', ft = 'lua', opts = {} },
 
   -- Added by Jun
   'tpope/vim-surround',
@@ -101,7 +107,13 @@ require('lazy').setup({
   -- },
 
   -- Useful plugin to show you pending keybinds.
-  { 'folke/which-key.nvim', opts = {} },
+  -- Icons are off because they need a Nerd Font plus an icon-provider plugin, and render as tofu without one.
+  {
+    'folke/which-key.nvim',
+    opts = {
+      icons = { mappings = false },
+    },
+  },
   {
     -- Adds git related signs to the gutter, as well as utilities for managing changes
     'lewis6991/gitsigns.nvim',
@@ -156,9 +168,9 @@ require('lazy').setup({
     --'navarasu/onedark.nvim',
     'rebelot/kanagawa.nvim',
     priority = 1000,
-    config = function()
-      vim.cmd.colorscheme 'kanagawa'
-    end,
+    lazy = false,
+    -- The colorscheme is deliberately not set here.
+    -- Which of kanagawa and glamour loads is decided in the colorscheme section further down, from the remembered choice.
   },
 
   {
@@ -183,8 +195,8 @@ require('lazy').setup({
     opts = {},
   },
 
-  -- "gc" to comment visual regions/lines
-  { 'numToStr/Comment.nvim', opts = {} },
+  -- NOTE: "gc"/"gcc" commenting used to come from numToStr/Comment.nvim.
+  -- Neovim ships it built in since 0.10, so the plugin was removed and the keymaps are unchanged.
 
   -- Fuzzy Finder (files, lsp, etc)
   {
@@ -208,11 +220,11 @@ require('lazy').setup({
   },
 
   {
-    -- Highlight, edit, and navigate code
+    -- Highlight, edit, and navigate code.
+    -- The `main` branch is the maintained rewrite; `master` is frozen and its queries no longer match the grammars Neovim 0.12 bundles.
     'nvim-treesitter/nvim-treesitter',
-    dependencies = {
-      'nvim-treesitter/nvim-treesitter-textobjects',
-    },
+    branch = 'main',
+    lazy = false,
     build = ':TSUpdate',
   },
 
@@ -240,15 +252,32 @@ require('lazy').setup({
 
  {
   "folke/zen-mode.nvim",
-    opts = {},
+    opts = {
+      -- The zen window is a second window onto the same buffer, and matchadd() is window-local.
+      -- WinEnter should already cover this, but the hook is cheap insurance against the float ever being opened with autocmds suppressed.
+      on_open = function()
+        sync_hashtag_match()
+      end,
+    },
   }
 
 
-}, {}) -- done lazy setup call
+}, {
+  -- No plugin in this config is a luarocks package, and without this lazy.nvim
+  -- reports a missing hererocks/luarocks install as a health error.
+  rocks = { enabled = false },
+}) -- done lazy setup call
 
 -- [[ Setting options ]]
 -- See `:help vim.o`
 -- NOTE: You can change these options as you wish!
+
+-- Remote-plugin providers.
+-- Nothing in this config uses them, so turn them off rather than let :checkhealth keep reporting them as missing.
+vim.g.loaded_node_provider = 0
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
+vim.g.loaded_python3_provider = 0
 
 -- Set highlight on search
 vim.o.hlsearch = false
@@ -287,6 +316,82 @@ vim.o.completeopt = 'menuone,noselect'
 -- NOTE: You should make sure your terminal supports this
 vim.o.termguicolors = true
 
+-- Output of `:!cmd` is tagged StderrMsg or StdoutMsg by stream, and StderrMsg links to ErrorMsg by default.
+-- Git reports routine progress on stderr -- "To <remote>" and the ref update line after a successful push -- so a push that worked fine renders entirely in red.
+-- Match plain message text instead; a command that actually failed still says so in its own output.
+-- Re-applied on ColorScheme because loading a colorscheme resets highlight groups.
+local function unred_stderr()
+  vim.api.nvim_set_hl(0, 'StderrMsg', {})
+end
+
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('JunStderrMsg', { clear = true }),
+  callback = unred_stderr,
+})
+
+unred_stderr()
+
+-- ============================================================================
+-- Colorscheme
+-- ============================================================================
+-- Two themes are kept side by side: kanagawa, and glamour in colors/glamour.lua,
+-- ported from the VS Code theme in ~/git/int/glamour-dark.
+-- The choice is remembered in the state directory rather than in this file, since
+-- it is a per-machine preference rather than part of the configuration.
+local themes = { 'kanagawa', 'glamour' }
+local theme_state = vim.fn.stdpath 'state' .. '/colorscheme.txt'
+
+local function remembered_theme()
+  local ok, saved = pcall(vim.fn.readfile, theme_state)
+  if ok and saved and saved[1] and vim.tbl_contains(themes, saved[1]) then
+    return saved[1]
+  end
+  return themes[1]
+end
+
+-- `remember` is false on startup so that merely opening Neovim never rewrites
+-- the file, and true when the choice is an explicit one.
+local function set_theme(name, remember)
+  if not pcall(vim.cmd.colorscheme, name) then
+    vim.notify('No colorscheme named ' .. name, vim.log.levels.WARN)
+    return false
+  end
+  if remember then
+    pcall(vim.fn.writefile, { name }, theme_state)
+  end
+  return true
+end
+
+set_theme(remembered_theme(), false)
+
+vim.api.nvim_create_user_command('Theme', function(opts)
+  if opts.args == '' then
+    print(vim.g.colors_name)
+  else
+    set_theme(opts.args, true)
+  end
+end, {
+  nargs = '?',
+  complete = function()
+    return themes
+  end,
+  desc = 'Show the current colorscheme, or switch to one and remember it',
+})
+
+vim.keymap.set('n', '<leader>ut', function()
+  local current = vim.g.colors_name
+  local next_theme = themes[1]
+  for i, name in ipairs(themes) do
+    if name == current then
+      next_theme = themes[i % #themes + 1]
+      break
+    end
+  end
+  if set_theme(next_theme, true) then
+    vim.notify('colorscheme: ' .. next_theme)
+  end
+end, { desc = '[U]I: cycle [t]heme' })
+
 -- ============================================================================
 -- Folding  (added/reworked by Jun)
 -- ============================================================================
@@ -295,21 +400,20 @@ vim.o.foldlevel = 99
 vim.o.foldlevelstart = 99
 
 -- Default for code: Treesitter structural folding (functions, blocks, ...).
+-- This is Neovim's own fold expression; `nvim_treesitter#foldexpr()` belonged to the plugin's frozen master branch and no longer exists.
 vim.opt.foldmethod = 'expr'
-vim.opt.foldexpr = 'nvim_treesitter#foldexpr()'
+vim.opt.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
 
--- Fall back to plain indent-based folding for filetypes that have no
--- Treesitter parser (plain text, some config formats, ...). Indent width comes
--- from the buffer's shiftwidth, which vim-sleuth auto-detects per file.
--- Markdown has its own expression below, so it is skipped here.
+-- Start Treesitter per buffer, and fall back to plain indent-based folding for filetypes that have no parser (plain text, some config formats, ...).
+-- The `main` branch of nvim-treesitter starts nothing on its own, so highlighting and indent are turned on here.
+-- Indent width for the fallback comes from the buffer's shiftwidth, which vim-sleuth auto-detects per file.
+-- Markdown is excluded from the fallback because it has its own fold expression below.
 vim.api.nvim_create_autocmd('FileType', {
   callback = function(args)
-    if args.match == 'markdown' then
-      return
-    end
     local lang = vim.treesitter.language.get_lang(args.match) or args.match
-    local ok, parser = pcall(vim.treesitter.get_parser, args.buf, lang, { error = false })
-    if not ok or not parser then
+    if pcall(vim.treesitter.start, args.buf, lang) then
+      vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+    elseif args.match ~= 'markdown' then
       vim.opt_local.foldmethod = 'indent'
     end
   end,
@@ -382,6 +486,107 @@ vim.api.nvim_create_autocmd('FileType', {
 vim.api.nvim_create_autocmd('BufWipeout', {
   callback = function(args)
     md_fold_cache[args.buf] = nil
+  end,
+})
+
+-- ----------------------------------------------------------------------------
+-- Fold text: show a closed fold as its first line in that line's real highlighting, followed by a dim line count.
+-- The default renders "+--- 7 lines: ## Heading" in the Folded colour, so a collapsed heading stops looking like a heading and `zM` gives a wall of dashes instead of an outline.
+-- Since Neovim 0.10 'foldtext' may return a list of {text, highlight} chunks, drawn like overlay virtual text on top of the Folded line, which is what makes this possible.
+-- Highlights come from every treesitter tree covering the line, including injected ones such as markdown_inline, so bold or code inside a heading keeps its styling.
+-- ----------------------------------------------------------------------------
+local function fold_text_chunks(bufnr, first, last)
+  local line = (vim.api.nvim_buf_get_lines(bufnr, first - 1, first, false)[1] or ''):gsub('%s+$', '')
+  local row = first - 1
+
+  -- One highlight group per byte column, filled in from treesitter captures.
+  -- Later captures overwrite earlier ones, which matches how the highlighter itself resolves overlaps closely enough for a single line.
+  -- Captures that carry no colour of their own (spell, conceal, and the query-internal ones beginning with '_') are skipped so they cannot clobber a real one.
+  local hl = {}
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, nil, { error = false })
+  if ok and parser then
+    -- The range is end-exclusive; { row, row } would parse the root tree but skip the injected ones.
+    parser:parse { row, row + 1 }
+    parser:for_each_tree(function(tree, ltree)
+      local query = vim.treesitter.query.get(ltree:lang(), 'highlights')
+      if not query then
+        return
+      end
+      for id, node in query:iter_captures(tree:root(), bufnr, row, row + 1) do
+        local name = query.captures[id]
+        if name ~= 'spell' and name ~= 'nospell' and name ~= 'conceal' and name:sub(1, 1) ~= '_' then
+          local sr, sc, er, ec = node:range()
+          if sr < row then
+            sc = 0
+          end
+          if er > row then
+            ec = #line
+          end
+          for col = sc + 1, math.min(ec, #line) do
+            hl[col] = '@' .. name .. '.' .. ltree:lang()
+          end
+        end
+      end
+    end)
+  end
+
+  -- Coalesce runs of identical highlighting into chunks.
+  local chunks, i = {}, 1
+  while i <= #line do
+    local group = hl[i] or 'Folded'
+    local j = i
+    while j < #line and (hl[j + 1] or 'Folded') == group do
+      j = j + 1
+    end
+    chunks[#chunks + 1] = { line:sub(i, j):gsub('\t', string.rep(' ', vim.bo[bufnr].tabstop)), group }
+    i = j + 1
+  end
+
+  local count = last - first + 1
+  chunks[#chunks + 1] = { string.format('  ⋯ %d line%s', count, count == 1 and '' or 's'), 'Comment' }
+  return chunks
+end
+
+function FoldText()
+  return fold_text_chunks(vim.api.nvim_get_current_buf(), vim.v.foldstart, vim.v.foldend)
+end
+
+vim.opt.foldtext = 'v:lua.FoldText()'
+-- Fill the rest of a closed fold's line with spaces rather than dots, so the Folded background reads as a clean bar behind the heading.
+vim.opt.fillchars:append { fold = ' ' }
+
+-- ----------------------------------------------------------------------------
+-- Markdown hashtags: a '#' followed directly by a word, like #project or #todo/next.
+-- The markdown parser has no node for these (they are ordinary paragraph text), so a regex match is used instead of a treesitter query.
+-- The '#' must be at the start of the line or after whitespace, which keeps `C#` and `a#b` out, and it must be followed immediately by a word character, which keeps `# Heading` out.
+-- matchadd() is window-local and outlives the buffer shown in the window, so this both adds the match for markdown and removes it again when the window moves on to something else.
+-- It has to run on WinEnter as well as FileType and BufWinEnter: BufWinEnter only fires when a buffer goes from hidden to displayed, not when a buffer that is already on screen is shown in a second window, which is exactly what :split and zen-mode do.
+-- The MarkdownHashtag group is defined by colors/glamour.lua; for any other colorscheme it falls back to Special.
+-- ----------------------------------------------------------------------------
+local hashtag_pattern = [[\v(^|\s)\zs#[[:alnum:]_][[:alnum:]_/-]*>]]
+
+-- Bring the current window's match in line with the filetype of the buffer it shows.
+-- Declared as a local near the top of this file so that zen-mode's on_open hook can call it.
+sync_hashtag_match = function()
+  local is_markdown = vim.bo.filetype == 'markdown'
+  local id = vim.w.markdown_hashtag_match
+  if is_markdown and not id then
+    vim.w.markdown_hashtag_match = vim.fn.matchadd('MarkdownHashtag', hashtag_pattern)
+  elseif not is_markdown and id then
+    pcall(vim.fn.matchdelete, id)
+    vim.w.markdown_hashtag_match = nil
+  end
+end
+
+vim.api.nvim_create_autocmd({ 'FileType', 'BufWinEnter', 'WinEnter' }, {
+  group = vim.api.nvim_create_augroup('JunMarkdownHashtag', { clear = true }),
+  callback = sync_hashtag_match,
+})
+
+vim.api.nvim_create_autocmd('ColorScheme', {
+  group = vim.api.nvim_create_augroup('JunMarkdownHashtagHl', { clear = true }),
+  callback = function()
+    vim.api.nvim_set_hl(0, 'MarkdownHashtag', { default = true, link = 'Special' })
   end,
 })
 
@@ -495,201 +700,111 @@ vim.keymap.set('n', '<leader>sd', require('telescope.builtin').diagnostics, { de
 vim.keymap.set('n', '<leader>sr', require('telescope.builtin').resume, { desc = '[S]earch [R]esume' })
 
 -- [[ Configure Treesitter ]]
--- See `:help nvim-treesitter`
--- Defer Treesitter setup after first render to improve startup time of 'nvim {filename}'
-vim.defer_fn(function()
-  require('nvim-treesitter.configs').setup {
-    -- Add languages to be installed here that you want installed for treesitter
-    ensure_installed = { 'c', 'cpp', 'go', 'lua', 'python', 'rust', 'tsx', 'javascript', 'typescript', 'vimdoc', 'vim', 'bash' },
+-- See `:help nvim-treesitter`.
+-- On the `main` branch this module only installs parsers; highlighting, indent and folds are switched on by the FileType autocmd in the folding section above.
+-- Neovim bundles parsers for c, lua, markdown, query, vim and vimdoc, so the rest are fetched here.
+local ts_langs = {
+  'bash',
+  'c',
+  'cpp',
+  'go',
+  'javascript',
+  'lua',
+  'markdown',
+  'markdown_inline',
+  'python',
+  'query',
+  'rust',
+  'tsx',
+  'typescript',
+  'vim',
+  'vimdoc',
+}
 
-    -- Autoinstall languages that are not installed. Defaults to false (but you can change for yourself!)
-    auto_install = false,
+-- Only fetch what is actually missing.
+-- `install()` is not a no-op for already-installed parsers, so calling it unconditionally would re-download them on every startup.
+local installed = require('nvim-treesitter.config').get_installed 'parsers'
+local missing = vim.tbl_filter(function(lang)
+  return not vim.tbl_contains(installed, lang)
+end, ts_langs)
 
-    highlight = { enable = true },
-    indent = { enable = true },
-    incremental_selection = {
-      enable = true,
-      keymaps = {
-        init_selection = '<c-space>',
-        node_incremental = '<c-space>',
-        scope_incremental = '<c-s>',
-        node_decremental = '<M-space>',
-      },
-    },
-    textobjects = {
-      select = {
-        enable = true,
-        lookahead = true, -- Automatically jump forward to textobj, similar to targets.vim
-        keymaps = {
-          -- You can use the capture groups defined in textobjects.scm
-          ['aa'] = '@parameter.outer',
-          ['ia'] = '@parameter.inner',
-          ['af'] = '@function.outer',
-          ['if'] = '@function.inner',
-          ['ac'] = '@class.outer',
-          ['ic'] = '@class.inner',
-        },
-      },
-      move = {
-        enable = true,
-        set_jumps = true, -- whether to set jumps in the jumplist
-        goto_next_start = {
-          [']m'] = '@function.outer',
-          [']]'] = '@class.outer',
-        },
-        goto_next_end = {
-          [']M'] = '@function.outer',
-          [']['] = '@class.outer',
-        },
-        goto_previous_start = {
-          ['[m'] = '@function.outer',
-          ['[['] = '@class.outer',
-        },
-        goto_previous_end = {
-          ['[M'] = '@function.outer',
-          ['[]'] = '@class.outer',
-        },
-      },
-      swap = {
-        enable = true,
-        swap_next = {
-          ['<leader>a'] = '@parameter.inner',
-        },
-        swap_previous = {
-          ['<leader>A'] = '@parameter.inner',
-        },
-      },
-    },
-  }
-end, 0)
+if #missing > 0 then
+  require('nvim-treesitter').install(missing)
+end
+
+-- NOTE: the `<c-space>` incremental-selection maps that used to live here are gone.
+-- The `main` branch dropped that feature and Neovim ships no equivalent.
 
 -- [[ Configure LSP ]]
---  This function gets run when an LSP connects to a particular buffer.
-local on_attach = function(_, bufnr)
-  -- NOTE: Remember that lua is a real programming language, and as such it is possible
-  -- to define small helper and utility functions so you don't have to repeat yourself
-  -- many times.
-  --
-  -- In this case, we create a function that lets us more easily define mappings specific
-  -- for LSP related items. It sets the mode, buffer and description for us each time.
-  local nmap = function(keys, func, desc)
-    if desc then
-      desc = 'LSP: ' .. desc
+-- These keymaps are attached per buffer, once a language server actually connects to it.
+-- The old `on_attach` callback plumbing is gone: Neovim 0.11+ fires LspAttach for this.
+vim.api.nvim_create_autocmd('LspAttach', {
+  group = vim.api.nvim_create_augroup('JunLspAttach', { clear = true }),
+  callback = function(event)
+    local nmap = function(keys, func, desc)
+      vim.keymap.set('n', keys, func, { buffer = event.buf, desc = desc and 'LSP: ' .. desc })
     end
 
-    vim.keymap.set('n', keys, func, { buffer = bufnr, desc = desc })
-  end
+    nmap('<leader>rn', vim.lsp.buf.rename, '[R]e[n]ame')
+    nmap('<leader>ca', vim.lsp.buf.code_action, '[C]ode [A]ction')
 
-  nmap('<leader>rn', vim.lsp.buf.rename, '[R]e[n]ame')
-  nmap('<leader>ca', vim.lsp.buf.code_action, '[C]ode [A]ction')
+    nmap('gd', require('telescope.builtin').lsp_definitions, '[G]oto [D]efinition')
+    nmap('gr', require('telescope.builtin').lsp_references, '[G]oto [R]eferences')
+    nmap('gI', require('telescope.builtin').lsp_implementations, '[G]oto [I]mplementation')
+    nmap('<leader>D', require('telescope.builtin').lsp_type_definitions, 'Type [D]efinition')
+    nmap('<leader>ds', require('telescope.builtin').lsp_document_symbols, '[D]ocument [S]ymbols')
+    nmap('<leader>ws', require('telescope.builtin').lsp_dynamic_workspace_symbols, '[W]orkspace [S]ymbols')
 
-  nmap('gd', require('telescope.builtin').lsp_definitions, '[G]oto [D]efinition')
-  nmap('gr', require('telescope.builtin').lsp_references, '[G]oto [R]eferences')
-  nmap('gI', require('telescope.builtin').lsp_implementations, '[G]oto [I]mplementation')
-  nmap('<leader>D', require('telescope.builtin').lsp_type_definitions, 'Type [D]efinition')
-  nmap('<leader>ds', require('telescope.builtin').lsp_document_symbols, '[D]ocument [S]ymbols')
-  nmap('<leader>ws', require('telescope.builtin').lsp_dynamic_workspace_symbols, '[W]orkspace [S]ymbols')
+    -- See `:help K` for why this keymap
+    nmap('K', vim.lsp.buf.hover, 'Hover Documentation')
+    nmap('<C-k>', vim.lsp.buf.signature_help, 'Signature Documentation')
 
-  -- See `:help K` for why this keymap
-  nmap('K', vim.lsp.buf.hover, 'Hover Documentation')
-  nmap('<C-k>', vim.lsp.buf.signature_help, 'Signature Documentation')
+    -- Lesser used LSP functionality
+    nmap('gD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
+    nmap('<leader>wa', vim.lsp.buf.add_workspace_folder, '[W]orkspace [A]dd Folder')
+    nmap('<leader>wr', vim.lsp.buf.remove_workspace_folder, '[W]orkspace [R]emove Folder')
+    nmap('<leader>wl', function()
+      print(vim.inspect(vim.lsp.buf.list_workspace_folders()))
+    end, '[W]orkspace [L]ist Folders')
 
-  -- Lesser used LSP functionality
-  nmap('gD', vim.lsp.buf.declaration, '[G]oto [D]eclaration')
-  nmap('<leader>wa', vim.lsp.buf.add_workspace_folder, '[W]orkspace [A]dd Folder')
-  nmap('<leader>wr', vim.lsp.buf.remove_workspace_folder, '[W]orkspace [R]emove Folder')
-  nmap('<leader>wl', function()
-    print(vim.inspect(vim.lsp.buf.list_workspace_folders()))
-  end, '[W]orkspace [L]ist Folders')
-
-  -- Create a command `:Format` local to the LSP buffer
-  vim.api.nvim_buf_create_user_command(bufnr, 'Format', function(_)
-    vim.lsp.buf.format()
-  end, { desc = 'Format current buffer with LSP' })
-end
+    -- Create a command `:Format` local to the LSP buffer
+    vim.api.nvim_buf_create_user_command(event.buf, 'Format', function(_)
+      vim.lsp.buf.format()
+    end, { desc = 'Format current buffer with LSP' })
+  end,
+})
 
 -- document existing key chains
--- which-key v3 replaced .register() with .add() and a new spec format. Prefer
--- the new API when the installed version provides it, and fall back to the
--- classic .register() otherwise, so this keeps working across a `:Lazy update`.
 local wk = require('which-key')
-if wk.add then
-  wk.add {
-    { '<leader>c', group = '[C]ode' },
-    { '<leader>d', group = '[D]ocument' },
-    { '<leader>g', group = '[G]it' },
-    { '<leader>h', group = 'More git' },
-    { '<leader>r', group = '[R]ename' },
-    { '<leader>s', group = '[S]earch' },
-    { '<leader>w', group = '[W]orkspace' },
-  }
-else
-  wk.register {
-    ['<leader>c'] = { name = '[C]ode', _ = 'which_key_ignore' },
-    ['<leader>d'] = { name = '[D]ocument', _ = 'which_key_ignore' },
-    ['<leader>g'] = { name = '[G]it', _ = 'which_key_ignore' },
-    ['<leader>h'] = { name = 'More git', _ = 'which_key_ignore' },
-    ['<leader>r'] = { name = '[R]ename', _ = 'which_key_ignore' },
-    ['<leader>s'] = { name = '[S]earch', _ = 'which_key_ignore' },
-    ['<leader>w'] = { name = '[W]orkspace', _ = 'which_key_ignore' },
-  }
-end
+wk.add {
+  { '<leader>c', group = '[C]ode' },
+  { '<leader>d', group = '[D]ocument' },
+  { '<leader>g', group = '[G]it' },
+  { '<leader>h', group = 'More git' },
+  { '<leader>r', group = '[R]ename' },
+  { '<leader>s', group = '[S]earch' },
+  { '<leader>u', group = '[U]I' },
+  { '<leader>w', group = '[W]orkspace' },
+}
 
--- mason-lspconfig requires that these setup functions are called in this order
--- before setting up the servers.
-require('mason').setup()
-require('mason-lspconfig').setup()
+-- Enable the following language servers.
+-- Settings go through `vim.lsp.config`, which is the 0.11+ replacement for `require('lspconfig')[name].setup{}`.
+-- mason-lspconfig v2 then enables every server it has installed, so there is no setup loop any more.
+local servers = { 'lua_ls' }
 
--- Enable the following language servers
---  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
---
---  Add any additional override configuration in the following tables. They will be passed to
---  the `settings` field of the server config. You must look up that documentation yourself.
---
---  If you want to override the default filetypes that your language server will attach to you can
---  define the property 'filetypes' to the map in question.
-local servers = {
-  -- clangd = {},
-  -- gopls = {},
-  -- pyright = {},
-  -- rust_analyzer = {},
-  -- tsserver = {},
-  -- html = { filetypes = { 'html', 'twig', 'hbs'} },
-
-  lua_ls = {
+vim.lsp.config('lua_ls', {
+  settings = {
     Lua = {
       workspace = { checkThirdParty = false },
       telemetry = { enable = false },
     },
   },
+})
+
+require('mason').setup()
+require('mason-lspconfig').setup {
+  ensure_installed = servers,
 }
-
--- Setup neovim lua configuration
-require('neodev').setup()
-
--- Default client capabilities. Previously this was a nil global because the
--- nvim-cmp block below is disabled; define proper defaults instead. If you
--- re-enable a completion plugin, extend these (e.g. blink.cmp / cmp_nvim_lsp).
-local capabilities = vim.lsp.protocol.make_client_capabilities()
-
--- Ensure the servers above are installed
-local mason_lspconfig = require 'mason-lspconfig'
-
-mason_lspconfig.setup {
-  ensure_installed = vim.tbl_keys(servers),
-}
-
--- mason-lspconfig v2 removed setup_handlers(). Configure each server directly
--- instead: this works on the installed v1 and survives an update to v2, since
--- we now only rely on mason-lspconfig for `ensure_installed` above.
-for server_name, server_settings in pairs(servers) do
-  require('lspconfig')[server_name].setup {
-    capabilities = capabilities,
-    on_attach = on_attach,
-    settings = server_settings,
-    filetypes = server_settings.filetypes,
-  }
-end
 
 -- [[ Configure nvim-cmp ]]
 -- See `:help cmp`
@@ -776,5 +891,7 @@ vim.keymap.set("x", "<leader>*", [[:<C-u>'<,'>normal! I * <CR>]], {
   desc = "Prefix selected lines with ' * '"
 })
 -- add italic and bold support for Neovide (doesn't matter for iTerm)
--- vim.opt.guifont = { "FiraCode Nerd Font Mono", "h14" }
-vim.opt.guifont = "JetBrains Mono:Fira Code:h14"
+-- In 'guifont' a comma separates fallback fonts and a colon introduces an option, so "A:B:h14" asks for font A with an option named B.
+-- This used to read "JetBrains Mono:Fira Code:h14", which Neovide rejected wholesale before falling back to SF Mono, a font not installed here.
+-- Menlo is the fallback because it ships with macOS; JetBrains Mono supplies the bold and italic faces.
+vim.opt.guifont = "JetBrains Mono,Menlo:h14"

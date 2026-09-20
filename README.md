@@ -17,7 +17,12 @@ git clone <<this repo>> nvim
 nvim
 ```
 
-**Requirements:** NeoVim 0.9+ (newer than default on some Ubuntu/AWS instances)
+**Requirements:**
+
+- NeoVim 0.12+ (newer than default on some Ubuntu/AWS instances)
+- A C compiler and the `tree-sitter` CLI (`brew install tree-sitter-cli`).
+  nvim-treesitter's `main` branch builds parsers with the CLI; without it every
+  parser install fails with `ENOENT ... 'tree-sitter'`.
 
 ## Key Features
 
